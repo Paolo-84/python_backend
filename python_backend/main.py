@@ -4,6 +4,7 @@ monkey.patch_all()
 import os
 from flask import Flask
 from flask_sock import Sock
+from flask_cors import CORS
 import requests
 import json
 import time
@@ -13,6 +14,13 @@ from geventwebsocket.handler import WebSocketHandler
 
 app = Flask(__name__)
 sock = Sock(app)
+
+# Configurar CORS
+CORS(app, origins=[
+    "https://finan-salud-front.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:5500"
+])
 
 # Configuración para API pública
 COINGECKO_API = "https://api.coingecko.com/api/v3"
@@ -79,15 +87,7 @@ def get_crypto_data():
         print(f"Error obteniendo datos: {e}")
         return None
 
-@sock.route('/ws')
-def handle_websocket(ws):
-    while True:
-        data = get_crypto_data()
-        if data:
-            ws.send(json.dumps(data))
-        time.sleep(UPDATE_INTERVAL)
-
-
+# ✅ RUTAS HTTP AGREGADAS
 @app.route('/')
 def home():
     """Página de inicio"""
@@ -103,8 +103,38 @@ def home():
         "timestamp": datetime.now().isoformat()
     }
 
+@app.route('/health')
+def health_check():
+    """Verificar estado del servidor"""
+    return {
+        "status": "ok", 
+        "timestamp": datetime.now().isoformat(),
+        "service": "crypto-api"
+    }
+
+@app.route('/api/crypto')
+def get_crypto_api():
+    """Obtener datos de crypto sin WebSocket"""
+    data = get_crypto_data()
+    if data:
+        return data
+    else:
+        return {"error": "No se pudieron obtener los datos"}, 500
+
+# ✅ WEBSOCKET (ya existía)
+@sock.route('/ws')
+def handle_websocket(ws):
+    try:
+        while True:
+            data = get_crypto_data()
+            if data:
+                ws.send(json.dumps(data))
+            time.sleep(UPDATE_INTERVAL)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8001))
+    print(f"Iniciando servidor en puerto {port}")
     server = WSGIServer(('0.0.0.0', port), app, handler_class=WebSocketHandler)
     server.serve_forever()
