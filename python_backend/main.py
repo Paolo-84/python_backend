@@ -7,7 +7,7 @@ from datetime import datetime
 import os
 
 app = Flask(__name__)
-sock = Sock(app)
+sock = Sock(app, cors_allowed_origins="*")
 
 # Configuración para API pública
 COINGECKO_API = "https://api.coingecko.com/api/v3"
@@ -81,8 +81,10 @@ def handle_websocket(ws):
             ws.send(json.dumps(data))
         time.sleep(UPDATE_INTERVAL)
 
-
+@app.route("/")
+def index():
+    return "Servidor WebSocket activo en Flask-SocketIO"
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 8001))
-    app.run(host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 10000))
+    socketio.run(app, host="0.0.0.0", port=port)
