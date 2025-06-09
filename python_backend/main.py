@@ -1,13 +1,18 @@
+from gevent import monkey
+monkey.patch_all()
+
+import os
 from flask import Flask
 from flask_sock import Sock
 import requests
 import json
 import time
 from datetime import datetime
-import os
+from gevent.pywsgi import WSGIServer
+from geventwebsocket.handler import WebSocketHandler
 
 app = Flask(__name__)
-sock = Sock(app, cors_allowed_origins="*")
+sock = Sock(app)
 
 # Configuración para API pública
 COINGECKO_API = "https://api.coingecko.com/api/v3"
@@ -81,10 +86,9 @@ def handle_websocket(ws):
             ws.send(json.dumps(data))
         time.sleep(UPDATE_INTERVAL)
 
-@app.route("/")
-def index():
-    return "Servidor WebSocket activo en Flask-SocketIO"
+
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))
-    socketio.run(app, host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 8001))
+    server = WSGIServer(('0.0.0.0', port), app, handler_class=WebSocketHandler)
+    server.serve_forever()
