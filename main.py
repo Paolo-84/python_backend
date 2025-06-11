@@ -1,30 +1,18 @@
-from gevent import monkey
-monkey.patch_all()
-
 import os
 from flask import Flask
 from flask_sock import Sock
-from flask_cors import CORS
 import requests
 import json
 import time
 from datetime import datetime
-from gevent.pywsgi import WSGIServer
-from geventwebsocket.handler import WebSocketHandler
 
 app = Flask(__name__)
 sock = Sock(app)
 
-# Configurar CORS
-CORS(app, origins=[
-    "https://finan-salud-front.vercel.app",
-    "http://localhost:3000",
-    "http://127.0.0.1:5500"
-])
-
-# Configuración para API pública
+# Configuración para API pública CON TU API KEY
 COINGECKO_API = "https://api.coingecko.com/api/v3"
-UPDATE_INTERVAL = 30  # segundos
+API_KEY = "CG-nPHmygxuwAQJZav58uztr463"  # Tu API key
+UPDATE_INTERVAL = 30  # Puedes reducirlo ahora que tienes API key
 
 def format_number(number):
     if number is None:
@@ -42,20 +30,37 @@ def format_number(number):
 
 def get_crypto_data():
     try:
-        global_response = requests.get(f"{COINGECKO_API}/global", timeout=10)
+        print("🔄 Obteniendo datos de CoinGecko con API key...")
+
+        # Headers con tu API key
+        headers = {
+            'Accept': 'application/json',
+            'x-cg-demo-api-key': API_KEY  # Tu API key aquí
+        }
+
+        print("📡 Solicitando datos globales...")
+        global_response = requests.get(
+            f"{COINGECKO_API}/global",
+            headers=headers,
+            timeout=15
+        )
+        print(f"🌐 Status global: {global_response.status_code}")
         global_response.raise_for_status()
         global_data = global_response.json()
 
+        print("📡 Solicitando datos de monedas...")
         coins_response = requests.get(
             f"{COINGECKO_API}/coins/markets",
             params={
                 "vs_currency": "eur",
                 "order": "market_cap_desc",
-                "per_page": 50,
+                "per_page": 20,  # Ahora puedes usar 20 sin problemas
                 "sparkline": False
             },
-            timeout=10
+            headers=headers,
+            timeout=15
         )
+        print(f"💰 Status monedas: {coins_response.status_code}")
         coins_response.raise_for_status()
         coins = coins_response.json()
 
@@ -78,63 +83,49 @@ def get_crypto_data():
             "isFavorite": False
         } for coin in coins if coin]
 
-        return {
+        result = {
             "type": "crypto",
             "market": market_data,
             "assets": assets
         }
+
+        print(f"✅ Datos obtenidos con API key: {len(assets)} criptomonedas")
+        return result
+
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ Error HTTP: {e}")
+        if e.response:
+            print(f"🔍 Status: {e.response.status_code}")
+            print(f"🔍 Response: {e.response.text[:200]}...")
+        return None
     except Exception as e:
-        print(f"Error obteniendo datos: {e}")
+        print(f"❌ Error general: {e}")
         return None
 
-# ✅ RUTAS HTTP AGREGADAS
-@app.route('/')
-def home():
-    """Página de inicio"""
-    return {
-        "message": "FinanSalud Crypto API está funcionando",
-        "endpoints": {
-            "/": "Información de la API",
-            "/health": "Verificar estado del servidor",
-            "/api/crypto": "Obtener datos de crypto (HTTP)",
-            "/ws": "WebSocket para datos en tiempo real"
-        },
-        "status": "online",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.route('/health')
-def health_check():
-    """Verificar estado del servidor"""
-    return {
-        "status": "ok", 
-        "timestamp": datetime.now().isoformat(),
-        "service": "crypto-api"
-    }
-
-@app.route('/api/crypto')
-def get_crypto_api():
-    """Obtener datos de crypto sin WebSocket"""
-    data = get_crypto_data()
-    if data:
-        return data
-    else:
-        return {"error": "No se pudieron obtener los datos"}, 500
-
-# ✅ WEBSOCKET (ya existía)
 @sock.route('/ws')
 def handle_websocket(ws):
+    print("🔌 Cliente WebSocket conectado")
     try:
         while True:
             data = get_crypto_data()
             if data:
                 ws.send(json.dumps(data))
+                print(f"📤 Datos enviados: {len(data['assets'])} activos")
+            else:
+                error_msg = {"error": "No se pudieron obtener datos"}
+                ws.send(json.dumps(error_msg))
+                print("📤 Mensaje de error enviado")
+
             time.sleep(UPDATE_INTERVAL)
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        print(f"❌ Error en WebSocket: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        print("🔌 Cliente WebSocket desconectado")
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8001))
-    print(f"Iniciando servidor en puerto {port}")
-    server = WSGIServer(('0.0.0.0', port), app, handler_class=WebSocketHandler)
-    server.serve_forever()
+    print(f"🚀 Iniciando servidor WebSocket en puerto {port}...")
+    print(f"🔑 Usando API key: CG-***{API_KEY[-10:]}")  # Mostrar solo los últimos caracteres
+    app.run(host='0.0.0.0', port=port, debug=False)
